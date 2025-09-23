@@ -43,7 +43,7 @@ with st.sidebar:
     st.markdown("— Built for Lush Gelato QA —")
 
 st.title("🍦 HACCP Food Safety Plan – Ice Cream Production")
-st.write("This form generates a HACCP-style plan you can save and print. It mirrors the template we drafted and is designed for inspectors and insurers.")
+
 
 # Metadata
 colm1, colm2, colm3 = st.columns(3)
@@ -112,7 +112,7 @@ hazard_default = [
     {
         "Step": "Pasteurization",
         "Potential Hazards": "Survival of pathogens",
-        "Preventive Measures": "≥155°F/30 min or HTST validated"
+        "Preventive Measures": "≥155°F/30 min"
     },
     {
         "Step": "Cooling",
@@ -161,7 +161,7 @@ st.subheader("4. Critical Control Points (CCPs)")
 ccp_default = [
     {
         "CCP": "Pasteurization",
-        "Critical Limits": "≥155°F for 30 min OR 175°F for 25 sec",
+        "Critical Limits": "≥155°F for 30",
         "Monitoring": "Chart recorder, thermometer",
         "Corrective Action": "Re-pasteurize or discard batch",
         "Verification": "Manager daily check",
@@ -357,3 +357,215 @@ if submitted:
 
 st.markdown("---")
 st.caption("This template is a first draft. Have a certified HACCP consultant review for regulatory compliance in your jurisdiction.")
+
+
+
+
+
+"""
+Streamlit page: Batch Freezing Log
+----------------------------------
+Drop this file into your Streamlit project. If you use a multipage app, put it under
+`pages/02_Batch_Freezing_Log.py` so it appears in the sidebar.
+
+What it does
+- Assigns the logged-in employee (from st.session_state) as the Freezer Operator
+- Lets you pick the Mixer (person who made the mix) from a dropdown of employees
+- Lets you pick the Second Tester from a dropdown of employees
+- Captures Mix Expiration Date
+- Includes two taste-test confirmations (Mixer + Second Tester)
+- Persists each entry to CSV at `data/batch_freezing_log.csv`
+
+Assumptions
+- Your login flow places the employee's full name into `st.session_state['user_full_name']`.
+  If not present, this page shows a lightweight fallback selector so you can still test.
+- Employee directory comes from `employees.csv` (full_name column); otherwise it falls back
+  to a hardcoded list you can edit.
+
+Dependencies
+    pip install streamlit pandas
+"""
+from __future__ import annotations
+import os
+from datetime import datetime, date
+from typing import List
+
+import pandas as pd
+import streamlit as st
+
+APP_TITLE = "🧊 Batch Freezing Log"
+DATA_DIR = "data"
+LOG_PATH = os.path.join(DATA_DIR, "batch_freezing_log.csv")
+EMPLOYEE_CSV = "employees.csv"  # optional; columns: full_name[, username, is_active]
+
+# -----------------------------
+# Helpers
+# -----------------------------
+
+def ensure_dirs_and_log():
+    os.makedirs(DATA_DIR, exist_ok=True)
+    if not os.path.exists(LOG_PATH):
+        df = pd.DataFrame(
+            columns=[
+                "timestamp",
+                "batch_date",
+                "batch_id",
+                "freezer_operator",
+                "mixer_name",
+                "second_tester_name",
+                "mix_expiration_date",
+                "mixer_taste_tested",
+                "second_tester_taste_tested",
+                "notes",
+            ]
+        )
+        df.to_csv(LOG_PATH, index=False)
+
+
+def load_employee_names() -> List[str]:
+    if os.path.exists(EMPLOYEE_CSV):
+        try:
+            df = pd.read_csv(EMPLOYEE_CSV)
+            # prefer active employees if column exists
+            if "is_active" in df.columns:
+                df = df[df["is_active"].astype(str).str.lower().isin(["1", "true", "yes"]) | (~df["is_active"].notna())]
+            if "full_name" in df.columns:
+                names = (
+                    df["full_name"].dropna().astype(str).str.strip().sort_values().unique().tolist()
+                )
+                return [n for n in names if n]
+        except Exception as e:
+            st.warning(f"Couldn't read {EMPLOYEE_CSV}: {e}")
+    # Fallback list — replace with your real team
+    return [
+        "Alice Martinez",
+        "Ben Kim",
+        "Carla Rossi",
+        "Diego Alvarez",
+        "Eva Chen",
+    ]
+
+
+def get_logged_in_user_name(employee_names: List[str]) -> str | None:
+    # Expect your auth system to set this
+    name = st.session_state.get("user_full_name") or st.session_state.get("user_name")
+    if name:
+        return str(name)
+
+    # Fallback so you can still test this page without wiring auth first
+    st.info("You're not logged in. Select your name below to proceed (demo mode).")
+    demo_name = st.selectbox("Who are you? (Freezer Operator)", employee_names, key="demo_select_user")
+    if st.button("Use this name for this session"):
+        st.session_state["user_full_name"] = demo_name
+        st.experimental_rerun()
+    return None
+
+
+# -----------------------------
+# UI
+# -----------------------------
+st.set_page_config(page_title="Batch Freezing Log", page_icon="🧊", layout="centered")
+st.title(APP_TITLE)
+st.caption("Records the freezing step with dual taste-test confirmation and traceability.")
+
+ensure_dirs_and_log()
+employee_names = load_employee_names()
+
+current_user = get_logged_in_user_name(employee_names)
+if not current_user:
+    st.stop()
+
+st.success(f"Freezer Operator: {current_user}")
+
+with st.form("batch_freezing_form"):
+    col1, col2 = st.columns(2)
+    with col1:
+        batch_date = st.date_input("Batch Date", value=date.today())
+        mix_exp_date = st.date_input("Mix Expiration Date")
+    with col2:
+        batch_id = st.text_input("Batch ID / Code", placeholder="e.g., 2025-09-22-VAN-003")
+
+    mixer_name = st.selectbox("Mixer (who made the mix)", employee_names, index=0)
+
+    # Remove the current user and mixer from the second tester candidates to encourage independence
+    second_choices = [n for n in employee_names if n != current_user or len(employee_names) == 1]
+    if mixer_name in second_choices and mixer_name != current_user:
+        # keep mixer as an option if needed, but you may wish to enforce distinct names
+        pass
+    second_tester_name = st.selectbox("Second Tester", second_choices, index=min(1, len(second_choices)-1) if len(second_choices) > 1 else 0)
+
+    st.markdown("### Taste Test Confirmation")
+    t1, t2 = st.columns(2)
+    with t1:
+        mixer_taste_tested = st.radio("Mixer taste-tested finished product?", ("Yes", "No"), horizontal=True)
+    with t2:
+        second_tester_taste_tested = st.radio("Second tester confirmed taste?", ("Yes", "No"), horizontal=True)
+
+    notes = st.text_area("Notes (optional)")
+
+    # Basic validations
+    errors = []
+    if not batch_id:
+        errors.append("Please enter a Batch ID / Code.")
+    if mixer_name == current_user:
+        st.info("Mixer and Freezer Operator can be the same person, but consider adding a distinct second tester.")
+    if second_tester_name == current_user and mixer_taste_tested == "No":
+        st.warning("If the operator is also the second tester, ensure the mixer confirmed their own taste test.")
+    if mix_exp_date < batch_date:
+        errors.append("Mix expiration date cannot be earlier than the batch date.")
+
+    submitted = st.form_submit_button("Save Batch Freezing Log")
+
+if submitted:
+    if errors:
+        for e in errors:
+            st.error(e)
+    else:
+        record = {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "batch_date": str(batch_date),
+            "batch_id": batch_id.strip(),
+            "freezer_operator": current_user,
+            "mixer_name": mixer_name,
+            "second_tester_name": second_tester_name,
+            "mix_expiration_date": str(mix_exp_date),
+            "mixer_taste_tested": mixer_taste_tested,
+            "second_tester_taste_tested": second_tester_taste_tested,
+            "notes": notes.strip(),
+        }
+        try:
+            # Append to CSV
+            df = pd.read_csv(LOG_PATH) if os.path.exists(LOG_PATH) else pd.DataFrame()
+            df = pd.concat([df, pd.DataFrame([record])], ignore_index=True)
+            df.to_csv(LOG_PATH, index=False)
+            st.success("Batch Freezing Log saved ✅")
+        except Exception as e:
+            st.error(f"Failed to save log: {e}")
+
+# -----------------------------
+# Recent entries & export
+# -----------------------------
+if os.path.exists(LOG_PATH):
+    df_all = pd.read_csv(LOG_PATH)
+    st.subheader("Recent Logs")
+    if not df_all.empty:
+        # Show newest first
+        df_all["timestamp"] = pd.to_datetime(df_all["timestamp"], errors="coerce")
+        df_show = df_all.sort_values("timestamp", ascending=False).head(25)
+        st.dataframe(df_show, use_container_width=True)
+        st.download_button(
+            "⬇️ Download Full Batch Freezing Log (CSV)",
+            data=df_all.to_csv(index=False).encode("utf-8"),
+            file_name="batch_freezing_log.csv",
+            mime="text/csv",
+        )
+    else:
+        st.info("No logs yet. Submit the form above to create the first entry.")
+else:
+    st.info("Log file not found. It will be created on your first save.")
+
+
+
+
+
+
