@@ -1,5 +1,20 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""HACCP Streamlit app"""
 
 from __future__ import annotations
+
+# stdlib imports next
+import os
+from datetime import date, datetime
+from typing import List, Dict
+
+# third-party imports
+import pandas as pd
+import streamlit as st
+
+# now it’s safe to call Streamlit config
+st.set_page_config(page_title="HACCP Plan – Ice Cream", page_icon="🍦", layout="wide")
 
 
 
@@ -19,13 +34,8 @@ from __future__ import annotations
 
 from __future__ import annotations
 import json
-from datetime import datetime, date
-from typing import List, Dict
 
-import pandas as pd
-import streamlit as st
 
-st.set_page_config(page_title="HACCP Plan – Ice Cream", page_icon="🍦", layout="wide")
 
 # -----------------------------
 # Helpers
